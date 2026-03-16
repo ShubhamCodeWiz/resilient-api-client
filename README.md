@@ -5,45 +5,36 @@ Python • Resilience Patterns • Circuit Breaker • Exponential Backoff • O
 ![Status](https://img.shields.io/badge/status-learning--project-orange)
 ![License](https://img.shields.io/badge/license-MIT-lightgrey)
 
-A production-grade resilient HTTP client for Python implementing 
-exponential backoff with jitter, circuit breaking, intelligent 
-rate limit handling, and structured observability.
+A production-grade resilient HTTP client for Python implementing exponential backoff with jitter, circuit breaking, intelligent rate limit handling, and structured observability.
 
-
+---
 
 # RetryableAPIClient
 
-A production-grade resilient HTTP client for Python implementing 
-exponential backoff with jitter, circuit breaking, intelligent 
-rate limit handling, and structured observability.
+A production-grade resilient HTTP client for Python implementing exponential backoff with jitter, circuit breaking, intelligent rate limit handling, and structured observability.
 
-Built from scratch to understand — not just use — the resilience 
-patterns that power systems at Stripe, Netflix, and AWS.
+Built from scratch to understand — not just use — the resilience patterns that power systems at Stripe, Netflix, and AWS.
 
+---
 
-## The Problem This Solves
+# The Problem This Solves
 
 Every service that calls external APIs faces the same failure modes:
 
-- A downstream service responds slowly — your threads pile up and 
-  your service dies, not because your code is broken but because 
-  you were too polite to hang up
-- A transient network error fails a request that would have 
-  succeeded on the second attempt
-- A struggling server gets hammered by simultaneous retries from 
-  every client — the thundering herd makes recovery impossible
-- A dependency goes down completely — without protection, 
-  every request to your service hangs waiting for a response 
-  that will never come
+* A downstream service responds slowly — your threads pile up and your service dies, not because your code is broken but because you were too polite to hang up
+* A transient network error fails a request that would have succeeded on the second attempt
+* A struggling server gets hammered by simultaneous retries from every client — the thundering herd makes recovery impossible
+* A dependency goes down completely — without protection, every request to your service hangs waiting for a response that will never come
 
-This client solves all four problems with layered defenses:  
-**timeout → retry → backoff with jitter → circuit breaking → structured observability.**
+This client solves all four problems with layered defenses:
 
+**timeout → retry → backoff with jitter → circuit breaking → structured observability**
 
+---
 
-## Architecture
+# Architecture
 
-
+```
 retryable_caller/
 ├── config.py
 ├── logger.py
@@ -51,64 +42,107 @@ retryable_caller/
 ├── circuit_breaker.py
 ├── caller.py
 └── main.py
+```
 
+---
 
-### Request Flow
+# Request Flow
 
 ```mermaid
 flowchart TD
-    A[client.fetch(url)] --> B[Circuit Breaker]
-    B --> C[call_api_with_retry]
-    C --> D[Exponential Backoff + Jitter]
-    D --> E[call_api HTTP Request]
-    E --> F{Response Status}
+    A[Client Fetch] --> B[Circuit Breaker Check]
 
-    F -->|200 OK| G[Return Response]
-    F -->|Retryable Error| H[Retry]
-    H --> C
+    B -->|Circuit Closed| C[Retry Logic]
+    B -->|Circuit Open| D[Fail Fast]
 
-    F -->|Too Many Failures| I[Circuit Breaker Opens]
+    C --> E[Compute Backoff With Jitter]
+    E --> F[HTTP Request]
+
+    F --> G{Response Status}
+
+    G -->|200 Success| H[Return Response]
+
+    G -->|Retryable Error| I[Retry Attempt]
+    I --> C
+
+    G -->|Too Many Failures| J[Circuit Breaker Opens]
 ```
 
-This shows the layered resilience:
+---
 
-Circuit breaker protects failing dependencies
+# Circuit Breaker State Machine
 
-Retry logic handles transient failures
+```mermaid
+stateDiagram-v2
+    [*] --> CLOSED
 
-Exponential backoff prevents thundering herd
+    CLOSED --> OPEN: failure threshold reached
+    OPEN --> HALF_OPEN: recovery timeout passed
 
-Structured logging records every attempt
+    HALF_OPEN --> CLOSED: probe request succeeds
+    HALF_OPEN --> OPEN: probe request fails
+```
 
-Components
+---
 
-config.py — Single Config dataclass holding all tunable parameters.
-No magic numbers anywhere in the codebase. Every value has a name
-and a reason.
+# Retry Timeline Example
 
-logger.py — JSONFormatter producing structured logs consumable
-directly by Datadog, ELK Stack, and Splunk. Every log line carries
-a correlation ID, timestamp, response time in milliseconds, and
-status code.
+```mermaid
+sequenceDiagram
+    participant Client
+    participant API
 
-backoff.py — Exponential backoff with full jitter. Implements the
-strategy validated by AWS research as optimal under load — randomizing
-wait time prevents thundering herd on recovery.
+    Client->>API: Request Attempt 1
+    API-->>Client: 503 Error
 
-circuit_breaker.py — Three-state machine. CLOSED under normal
-operation. OPEN after failure threshold — fails fast without calling
-the dependency. HALF-OPEN after cooldown — tests recovery with a
-single probe request.
+    Client->>Client: Exponential Backoff Wait
 
-caller.py — RetryableAPIClient exposes a single fetch() method.
+    Client->>API: Request Attempt 2
+    API-->>Client: 200 Success
+```
+
+---
+
+# Components
+
+**config.py** — Single Config dataclass holding all tunable parameters.
+No magic numbers anywhere in the codebase. Every value has a name and a reason.
+
+**logger.py** — JSONFormatter producing structured logs consumable directly by Datadog, ELK Stack, and Splunk. Every log line carries a correlation ID, timestamp, response time in milliseconds, and status code.
+
+**backoff.py** — Exponential backoff with full jitter. Implements the strategy validated by AWS research as optimal under load — randomizing wait time prevents thundering herd on recovery.
+
+**circuit_breaker.py** — Three-state machine.
+
+* CLOSED under normal operation
+* OPEN after failure threshold — fails fast without calling dependency
+* HALF-OPEN after cooldown — tests recovery with a probe request
+
+**caller.py** — RetryableAPIClient exposes a single `fetch()` method.
 Facade pattern hiding all resilience complexity from the caller.
-Handles 429 rate limiting by parsing and respecting Retry-After headers.
 
-Installation
+Handles:
+
+* retries
+* backoff
+* circuit breaking
+* rate limit handling
+
+---
+
+# Installation
+
+```bash
 git clone https://github.com/ShubhamCodeWiz/resilient-api-client
 cd resilient-api-client
 pip install httpx
-Usage
+```
+
+---
+
+# Usage
+
+```python
 from retryable_caller.caller import RetryableAPIClient
 from retryable_caller.config import Config
 
@@ -125,11 +159,15 @@ config = Config(
 client = RetryableAPIClient(config)
 
 response = client.fetch("https://api.example.com/data")
-Example Output
+```
 
-A single request that hits a 503, retries with backoff,
-and succeeds on the second attempt:
+---
 
+# Example Output
+
+A single request that hits a 503, retries with backoff, and succeeds on the second attempt:
+
+```json
 {"timestamp": "2024-01-15T14:23:01.123Z", "level": "INFO",
  "correlation_id": "7f3a9b2c", "event": "api_call_attempt",
  "attempt": 1, "url": "https://api.example.com/data",
@@ -144,107 +182,111 @@ and succeeds on the second attempt:
  "correlation_id": "7f3a9b2c", "event": "api_call_success",
  "attempt": 2, "url": "https://api.example.com/data",
  "status_code": 200, "response_time_ms": 98}
+```
 
-A request that exhausts retries and opens the circuit breaker:
+---
 
-{"timestamp": "2024-01-15T14:25:11.001Z", "level": "ERROR",
- "correlation_id": "a9f3c821", "event": "circuit_breaker_opened",
- "consecutive_failures": 5, "threshold": 5,
- "next_probe_after_seconds": 30}
-Design Decisions
+# Design Decisions
 
-This section explains the why behind each technical choice.
+This section explains the **why behind each technical choice**.
 
-These are the decisions I'd defend in a production code review.
+### Why exponential backoff instead of fixed delay?
 
-Why exponential backoff instead of fixed delay?
+Fixed delay means all retries hit the server at predictable intervals.
+Exponential backoff creates increasing breathing room for the server to recover.
 
-Fixed delay means all retries hit the server at predictable
-intervals — if the server is struggling, predictable load makes
-recovery harder. Exponential backoff creates increasing breathing
-room, giving the server more time to recover with each attempt.
+---
 
-Why full jitter specifically?
+### Why full jitter?
 
-Without jitter, clients that started failing at the same moment
-retry at the same moment — the thundering herd problem.
+Without jitter, clients retry at the same time — causing a thundering herd.
+AWS research showed full jitter performs best under heavy load.
 
-AWS research showed full jitter performs best under load.
+---
 
-Why separate connect_timeout and read_timeout?
+### Why separate connect_timeout and read_timeout?
 
-Connection timeout and read timeout protect against different
-failure modes.
+They protect against different failures:
 
-Connection timeout → network failure detection
-Read timeout → slow server protection
+Connection timeout → network failures
+Read timeout → slow server responses
 
-Why check idempotency before retrying?
+---
 
-Retrying a POST that creates a resource produces duplicates.
-Retrying a payment charge double-bills users.
+### Why idempotency checks?
 
-Idempotency checks prevent catastrophic business bugs.
+Retrying POST requests blindly can create duplicate resources or double charge users.
 
-Why the Facade pattern?
+Idempotency keys ensure retries are safe.
 
-Business logic should not know retries exist.
+---
 
-It should simply call:
+### Why the Facade pattern?
 
+Business logic should simply call:
+
+```
 fetch()
+```
 
-and receive either:
+It should not know about:
 
-a response
+* retry logic
+* circuit breakers
+* backoff strategies
 
-or a clean exception
+This keeps the system loosely coupled.
 
-Why structured JSON logs?
+---
 
-Plain text logs cannot be queried at scale.
+### Why structured JSON logs?
 
-JSON logs are directly ingestible by:
+Plain text logs cannot be queried efficiently.
 
-Datadog
+JSON logs allow structured search in:
 
-ELK Stack
+* Datadog
+* ELK Stack
+* Splunk
 
-Splunk
+---
 
-Why correlation IDs?
+### Why correlation IDs?
 
-Without correlation IDs, logs across services cannot be linked.
+They link logs across multiple services.
 
-Correlation IDs are the primitive that distributed tracing
-systems like Jaeger are built on.
+Without them, reconstructing request flows in distributed systems is extremely difficult.
 
-What I Would Add Next
+---
 
-Prometheus metrics
+# What I Would Add Next
+
+**Prometheus metrics**
 
 Counters for:
 
-total requests
+* total requests
+* retries
+* circuit breaker openings
+* response time histograms
 
-retries
+---
 
-circuit breaker opens
+**Fallback responses**
 
-response time histograms
+Return cached data when the circuit breaker is OPEN.
 
-Fallback responses
+---
 
-Return cached or default data when the circuit is OPEN.
-
-Full test suite
+**Full test suite**
 
 Using:
 
-pytest
+* pytest
+* respx for HTTP mocking
 
-respx for HTTP mocking
+---
 
-OpenTelemetry integration
+**OpenTelemetry integration**
 
-Replace correlation IDs with OpenTelemetry trace context to enable distributed tracing.
+Replace correlation IDs with OpenTelemetry trace context for distributed tracing.
