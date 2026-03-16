@@ -57,26 +57,18 @@ retryable_caller/
 
 ```mermaid
 flowchart TD
+    A[client.fetch(url)] --> B[Circuit Breaker]
+    B --> C[call_api_with_retry]
+    C --> D[Exponential Backoff + Jitter]
+    D --> E[call_api HTTP Request]
+    E --> F{Response Status}
 
-A[client.fetch(url)]
-B[Circuit Breaker]
-C[call_api_with_retry]
-D[Exponential Backoff + Jitter]
-E[call_api HTTP request]
-F{Response Status}
-G[Return Success]
-H[Retry]
-I[Circuit Opens]
+    F -->|200 OK| G[Return Response]
+    F -->|Retryable Error| H[Retry]
+    H --> C
 
-A --> B
-B --> C
-C --> D
-D --> E
-E --> F
-F -->|200 OK| G
-F -->|Retryable Error 5xx / Network| H
-H --> C
-F -->|Too Many Failures| I
+    F -->|Too Many Failures| I[Circuit Breaker Opens]
+```
 
 This shows the layered resilience:
 
